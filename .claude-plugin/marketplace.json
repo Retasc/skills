@@ -1,0 +1,23 @@
+{
+  "name": "retasc",
+  "owner": {
+    "name": "Retasc",
+    "url": "https://retasc.com"
+  },
+  "description": "Agent Skills for Retasc, the work queue AI coding agents pull from.",
+  "plugins": [
+    {
+      "name": "retasc",
+      "source": "./",
+      "displayName": "Retasc",
+      "description": "Set up and work Retasc: onboarding from nothing installed, dispatch, leases, review, every MCP tool and CLI command, and the fix for every known failure.",
+      "author": {
+        "name": "Retasc"
+      },
+      "license": "MIT",
+      "homepage": "https://retasc.com",
+      "repository": "https://github.com/Retasc/skills",
+      "keywords": ["retasc", "mcp", "agents", "work-queue", "issue-tracker", "dispatch"]
+    }
+  ]
+}

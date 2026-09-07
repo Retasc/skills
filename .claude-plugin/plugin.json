@@ -1,0 +1,13 @@
+{
+  "name": "retasc",
+  "version": "1.0.0",
+  "description": "Set up and work Retasc, the leased, dependency-aware work queue AI coding agents pull from over MCP.",
+  "author": {
+    "name": "Retasc",
+    "url": "https://retasc.com"
+  },
+  "homepage": "https://retasc.com",
+  "repository": "https://github.com/Retasc/skills",
+  "license": "MIT",
+  "keywords": ["retasc", "mcp", "agents", "work-queue"]
+}
