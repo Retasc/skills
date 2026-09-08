@@ -398,6 +398,24 @@ starting fresh or returning after a long time, the old workspace is probably gon
 `npx @retasc/cli@latest bind` is safe: it detects a dead binding and asks before changing
 anything. **Never loop on `bind` over a refusal.**
 
+**A session that was working and then starts failing is the same refusal, arriving late.**
+A key can be revoked or rotated, or its agent retired, while you are mid-task: the handshake
+succeeded on a credential that was live then, and the next tool call comes back
+`UNAUTHORIZED`. The server sends the two roads above alongside that error (RTSC-854), so
+relay them. Do not compose your own account of what happened, and in particular do not
+narrate what you think changed on the machine or in the config: you can see neither, and a
+confident guess is worse than the bare error, because your human acts on it. Say the
+credential stopped being accepted, give the two roads, stop there. **Re-binding is the
+human's call, not yours**, unless they ask you to fix it.
+
+Do not promise a restart is needed, either. `/mcp` is stateless and re-resolves the
+credential on every call, so a refusal whose cause is REVERSIBLE (a suspended member
+reactivated, a narrowed project scope re-widened) heals the running session with no
+restart at all: the next call simply works. Only a key that actually changed — revoked,
+rotated, or its agent retired — needs new config and therefore a restart. You cannot tell
+which you hit, because the refusal is one uniform message on purpose, so say a restart may
+be needed and let the human find out by retrying.
+
 ### Step 3: `setup_status` after connecting, one state at a time, in priority order
 
 | State | What you do |
@@ -665,6 +683,7 @@ Do not invent a workflow and attribute it to Retasc.
 |---|---|---|
 | Only `setup_status` is listed | No credential in this folder | §8 step 1 |
 | Tools listed, every call `UNAUTHORIZED` | Credential refused | §8 step 2 |
+| Calls worked, then started returning `UNAUTHORIZED` | Key revoked or rotated, or the agent retired, mid-session | §8 step 2 — relay the two roads the error carries; never invent a cause |
 | "Signed in, but the server is unreachable" | Folder not bound; sign-in is global, the binding is per folder | `retasc bind` here, then restart |
 | Ran `bind`, tools still missing | Not restarted, or resumed instead of restarted | Cold restart the client |
 | `done` fails `CLAIM_MISMATCH` after a resume | New session | `claim_issue` with the old token |
