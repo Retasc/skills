@@ -44,8 +44,9 @@ YOUR MACHINE                                  RETASC (the server)
 
 - **Take work, don't pick it.** `next_issue` hands you the top unblocked issue by effective
   priority. The graph already decided what matters. Cherry-picking defeats it.
-- **A claim is a lease, not a label.** It expires 30 minutes after the last renewal. Only
-  `heartbeat` and `checkpoint` renew it. Commenting, changing status, and pushing code do not.
+- **A claim is a lease, not a label.** It expires 30 minutes after the last renewal. Behind the
+  proxy only `heartbeat` and `checkpoint` renew it; commenting, changing status, and pushing
+  code do not. With no proxy, your own calls do it for you (§5).
 - **Checkpoint, so the next agent resumes instead of restarting.** A checkpoint survives
   release, reclaim, and a change of runtime. It is cleared only by `done` or `canceled`.
 - **The folder decides the org.** You never choose the org or project. The credential wired
@@ -212,7 +213,7 @@ cap per org.
 ## 5. The lease
 
 - **TTL 30 minutes** from the claim. `heartbeat` and `checkpoint` each reset it to a full 30
-  minutes from that call. Nothing else touches it.
+  minutes from that call. Behind the proxy nothing else touches it.
 - The **reclaimer** (a server cron) frees any lease past expiry: clears the claim, `doing` →
   `todo` (a `review` claim stays `review`), bumps `reclaimCount`, logs `reclaimed`. The
   checkpoint and comments stay.
@@ -220,13 +221,23 @@ cap per org.
   - Stock setup (the `retasc mcp-proxy` watchdog in front of the MCP): the proxy heartbeats
     every 10 minutes for every claim **it saw this session make**. Silent multi-hour work is
     safe. Process death, machine sleep, and key rotation stop it.
-  - Direct HTTP MCP (hosted agent, CI, no proxy): **you** renew. `checkpoint` before any
-    stretch where you will not call Retasc. The claim response warns you ("I cannot see a
-    local Retasc runner").
+  - Direct HTTP MCP with no proxy, echoing the `Mcp-Session-Id` we hand you at `initialize`
+    (a cloud session, a claude.ai connector, any compliant MCP client): **your own calls**
+    renew, a read as much as a write (RTSC-858). ONE call renews EVERY claim that session
+    took, not just the issue you named. A silence over 30 minutes still lapses them, so
+    `checkpoint` before one. **A reconnect ends it**: your client gets a new session id, and
+    the claims taken under the old one stop renewing while `youHold` still reads true.
+    `check_claim` returns `renewedByYourCalls`; when it goes false, `claim_issue` with your
+    `claimToken` moves the lease onto the new session and renewal resumes.
+  - Direct HTTP MCP sending no session id (raw `curl`, CI with a hand-rolled client): **you**
+    renew. `checkpoint` before any stretch where you will not call Retasc. The claim response
+    warns you ("I cannot see a local Retasc runner").
   - A claim this proxy never saw (another terminal, or before a restart): nobody renews it
     until you re-claim it with its token (below).
-- **Prove it**: `check_claim` returns `lastRenewedAt`. Call it twice across a long stretch. If
-  it moved, something is renewing you. Frozen at claim time means nothing is.
+- **Prove it**: `check_claim` returns `renewedByYourCalls` (is THIS session's own activity
+  renewing this claim right now) and `lastRenewedAt` (call it twice across a long stretch; if
+  it moved, something is renewing you, frozen at claim time means nothing is). `check_claim`
+  is the one tool that never renews anything, so neither reading can be an artefact of asking.
 - **`claimToken`** fences every write on a held issue. Lost it (context summary, crash)? Omit
   it: the same session is still recognized for `heartbeat`, `checkpoint`, `release_issue`.
   Exception: a claim taken over a bare shared workspace key with no session key always needs
@@ -264,6 +275,13 @@ worktree isolates *files*. Two agents in one checkout share one HEAD and land ed
 other's branches. A fresh worktree has only tracked files: run the repo's install step first.
 The server never checks this; it is the one piece of process Retasc asks for, because it is
 the one collision the server cannot prevent.
+
+**Retasc works inside a worktree.** A binding covers every worktree of the repo it was made
+in, so you do NOT re-bind per worktree (CLI 1.45.0+). Re-binding one mints a second key and
+a second agent for a single repo, which is how a person ends up with three agents and a
+Dash that reads as though a fleet is running. If the tools are missing in a worktree, the
+machine is on an older CLI: `npm i -g @retasc/cli@latest`, then restart. Binding a worktree
+on purpose still works and still wins over its repo's binding.
 
 ### `done`
 
@@ -463,11 +481,61 @@ launcher starts, illegal global entries).
   `retasc hook …` so the proxy can label the session. Other harnesses have no hook; their
   sessions carry less. Normal.
 - **Hosted agents and CI**: no CLI. A **human** mints a key in their own terminal
-  (`retasc key mint`) or in the Dash and puts it in the runner's secret store; the runner sends
+  (`retasc key mint --hosted`) or in the Dash and puts it in the runner's secret store; the
+  `--hosted` is not optional: it is what tells the server this key will never have a local
+  watchdog, so it is asked to renew its own leases instead of being told to run `bind`
+  (RTSC-859). The runner sends
   `Authorization: Bearer <key>` to `https://mcp.retasc.com/mcp`. Never run `key mint`
   yourself: its output is a raw, long-lived org credential and would land in your transcript.
-  No proxy ⇒ you renew leases yourself.
+  No proxy ⇒ renewal rides on your own calls if you echo the session id, and is entirely
+  yours if you don't (§5).
 - **Platform**: macOS is the tested platform; `doctor` prints a note elsewhere.
+
+### In a container or cloud session
+
+Everything above assumes a laptop: a `retasc` binary on `PATH` and a home keystore, both
+per-machine state a fresh clone does not carry. A container has neither, so the committed
+`./.mcp.json` marker fails twice over, first on the binary (`retasc (ENOENT)`) and then,
+behind it, on the credential. There are two container shapes, and which one you are in has
+nothing to do with which harness you run.
+
+**Shape A, the container can run a process and set environment** (Claude Code cloud, CI
+runners, most agent sandboxes). The normal stdio proxy works here unchanged, because the
+proxy reads `RETASC_MCP_KEY` from the environment *before* it consults the keystore. No
+`bind`, no keystore, no browser.
+
+1. A **human**, on their own machine, mints a key (`retasc key mint --hosted`, or the Dash) and sets
+   it as the platform's secret: `RETASC_MCP_KEY`, plus `RETASC_MCP_URL` only if the
+   deployment is self-hosted. There is no in-container door for this yet; ask for the
+   secret, never mint one yourself.
+2. In the container: `npx -y @retasc/cli@latest setup`. One command, no sign-in, and it
+   wires every harness that is present.
+3. Restart the harness, then `whoami`.
+
+**The key comes from the environment, never from a file.** `.githooks/pre-commit` refuses a
+staged `.mcp.json` containing `RETASC_MCP_KEY` or an `authorization` key, because a
+credential committed once stays readable in git history long after it is deleted.
+
+Two things that bite in this shape, both worth knowing before you debug them. `setup`
+makes the binary real by installing the CLI, so the committed marker's `command: "retasc"`
+resolves afterwards; if that install cannot happen (no write access to the npm prefix) the
+marker still names a command that does not exist, and in Claude Code a project-scope
+`.mcp.json` outranks the user-scope entry `setup` just wrote, so it keeps winning and
+keeps failing. Fix it in the marker itself: `"command": "npx"`, `"args": ["-y",
+"@retasc/cli@latest", "mcp-proxy"]`. And with no key in the environment the proxy still
+starts and `setup_status` answers `NOT_CONNECTED` with the instruction, which is a
+different failure from ENOENT and means the credential, not the launcher.
+
+**Shape B, an HTTP-only host** (claude.ai connectors, Codex Cloud, a hosted OpenCode). No
+process, no environment you control, so no proxy is possible in principle. The entry is the
+direct form: the remote URL plus `Authorization: Bearer <key>`. `retasc key mint` prints
+all three spellings, each labelled with the harnesses that read it, because they are not
+interchangeable: Codex reads an `[mcp_servers.retasc.http_headers]` table and Grok reads
+`[mcp_servers.retasc.headers]`, and **each silently ignores the other's**, loading happily
+into a server that is enabled, configured and unauthenticated. The only symptom is
+`UNAUTHORIZED` at the first tool call. Put the block in the harness's own user-scope config
+or the platform's secret store, never in a tracked file. No proxy also means nothing
+renews your leases: `heartbeat` or `checkpoint` yourself (§5).
 
 ## 10. Billing (what a call costs, and what refuses)
 
@@ -579,7 +647,7 @@ Install: `npm i -g @retasc/cli`, or run any command through `npx @retasc/cli@lat
 | `setup [--no-install]` | Wire the `auto` proxy entry into every harness on the machine, once. |
 | `init --project --prefix [--org \| --org-id] …` | Create org + project and bind, in one shot. `bind` is preferred for existing orgs. |
 | `org create --name` · `project create --org-id --name --prefix` · `project rename-prefix --project-id --prefix` | Owner management. Rename rewrites every identifier. |
-| `key mint --org-id --project-id [--agent] [--runtime] [--name] [--install]` · `key list --org-id` · `key rotate --key-id` · `key revoke --key-id` | Agent keys for hosted agents / CI or manual wiring. Shown once. A human runs `mint` and `rotate`; an agent never does, the output is a raw credential. |
+| `key mint --org-id --project-id [--agent] [--runtime] [--name] [--hosted] [--install]` · `key list --org-id` · `key rotate --key-id` · `key revoke --key-id` | Agent keys for hosted agents / CI or manual wiring. Shown once. `--hosted` marks a key that will never have a local watchdog: it is then asked to self-renew rather than told to run `bind`, and the Agents page says "no folder (hosted)" as a fact (RTSC-859). A human runs `mint` and `rotate`; an agent never does, the output is a raw credential. |
 | `members invite [--org-id] [--expires-days] [--project-id …]` · `members list --org-id` · `members revoke --invite-id` | Invite humans. Omitted `--project-id` asks; skipped = all projects. |
 | `identity [--org-id]` | Claim an imported placeholder as yourself. Never scriptable. |
 | `import [--org-id] [--source] [-y]` | Bring a tracker across from the terminal; the mapping is always asked. |
@@ -687,7 +755,7 @@ Do not invent a workflow and attribute it to Retasc.
 | "Signed in, but the server is unreachable" | Folder not bound; sign-in is global, the binding is per folder | `retasc bind` here, then restart |
 | Ran `bind`, tools still missing | Not restarted, or resumed instead of restarted | Cold restart the client |
 | `done` fails `CLAIM_MISMATCH` after a resume | New session | `claim_issue` with the old token |
-| Issue reclaimed mid-work | Nothing renewing (no proxy, or the claim predates this proxy) | `check_claim` twice; `checkpoint` yourself; or re-claim with the token so the proxy adopts it |
+| Issue reclaimed mid-work | Nothing renewing (no proxy AND no session id echoed, or the claim predates this proxy) | `check_claim` twice; `checkpoint` yourself; or re-claim with the token so the proxy adopts it |
 | Two agents' edits on one branch | Same checkout | One worktree per claim, before the first edit |
 | Agent reports an empty queue, the human sees work | Lanes, blockers, or quarantine | Read the pull's counts and `tellHuman` |
 | Agent tries to read a key from disk to upload a file | Followed the wrong tool | `save_attachment_file`; never hunt for credentials |
@@ -695,4 +763,7 @@ Do not invent a workflow and attribute it to Retasc.
 | A second org appeared on billing | `bind` was run instead of `join` | No CLI delete; the Dash or support |
 | Codex / Cursor / Gemini has no Retasc tools | `setup` never ran after that harness was installed | `retasc setup`, restart |
 | A wall of bogus type errors in a fresh worktree | Untracked dependencies | Run the repo's install step |
+| No Retasc tools at all inside a git worktree | CLI older than 1.45.0: the binding lookup stopped at the worktree's `.git` file | `npm i -g @retasc/cli@latest`, restart. Do NOT re-bind the worktree, that mints a second agent |
 | `bind` seems to hang with no output | It is waiting on the browser click | Post the approve URL; it prints before the wait |
+| `retasc (ENOENT)` at session start, or `retasc: command not found` | A container or fresh clone: the committed marker names a binary this machine never installed | `npx -y @retasc/cli@latest setup`, with `RETASC_MCP_KEY` set as a secret, then restart. §9, "In a container or cloud session" |
+| Codex or Grok has the remote key in its config and every call is `UNAUTHORIZED` | The other tool's header key: Codex reads `http_headers`, Grok reads `headers`, and each ignores the other's without a word | Use the block `retasc key mint` prints for THAT tool |
