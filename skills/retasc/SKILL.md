@@ -142,23 +142,48 @@ by changing files or systems. `work:false` = it only organizes other issues (epi
 plan) and is **never dispatched or claimable** (`NOT_WORK`); by convention it is `done` when
 its children are. A container cannot be in `review`; resend `work:true` first, or close it.
 
+### Kind of change (`changeType`)
+
+Mandatory on the MCP create path, one value, from Conventional Commits and nothing else:
+
+`feat` · `fix` · `docs` · `style` · `refactor` · `perf` · `test` · `build` · `ci` · `chore` · `revert`
+
+Pick what the change **is**, not what it touches — area is what `labels` are for, and they are
+unaffected and still many-per-issue. You are the one who knows: you have just written the body.
+It is one value because spend is split by it and a stack has to add up, and it is correctable
+with a later `save_issue` if the work turns out to be something else.
+
 ### Priority
 
 `0 = None, 1 = Urgent, 2 = High, 3 = Medium, 4 = Low`. **0 sorts last.**
 
 ### Deadlines
 
-`dueAt` (epoch ms, precise) or `dueDate` (day-granular; resolves to end of day in the org
-timezone). Every read derives `slaState`: `ok` (< 75% of the window elapsed), `warning`
-(≥ 75%), `breaching` (≥ 90%, not yet past), `breached` (past). Dispatch floors effective
-priority from it: ≥ 75% → at least High, ≥ 90% → at least Urgent, breached → above Urgent.
-The floor inherits up the `blocks` chain like raw priority.
+**You are the only one who can set one.** `dueAt` is written over MCP and nowhere else —
+the Dash has no date field, so a deadline a person said out loud and you did not record
+does not exist. Two rules when you file work:
+
+- **The person named a time** ("by Friday", "before the demo", "end of the month") →
+  convert it to the instant they meant, in their timezone, and send `dueAt`.
+- **The work is plainly time-bound and nobody said when** → ask, once, while filing. A
+  deadline added days later is a deadline that never dispatched.
+
+Most work carries no commitment and should carry no date: a guessed deadline is worse
+than none, because dispatch believes it.
+
+`dueAt` (epoch ms, precise) or `dueDate` (day-granular, IMPORT ONLY; resolves to end of
+day in the org timezone). Every read derives `slaState`: `ok` (< 75% of the window
+elapsed), `warning` (≥ 75%), `breaching` (≥ 90%, not yet past), `breached` (past).
+Dispatch floors effective priority from it: ≥ 75% → at least High, ≥ 90% → at least
+Urgent, breached → above Urgent. The floor inherits up the `blocks` chain like raw
+priority.
 
 ### Creating an issue (`save_issue` without `identifier`)
 
-Required: `title`, `work`, and **one** dependency declaration: `blockedBy: [ids]` or
-`noDependency: "one-line reason"`. A create missing either is rejected (`WORK_REQUIRED`,
-`DEPENDENCY_REQUIRED`). Cycles in `blocks` are rejected (`INVALID: dependency cycle`).
+Required: `title`, `work`, `changeType`, and **one** dependency declaration: `blockedBy: [ids]`
+or `noDependency: "one-line reason"`. A create missing any of them is rejected (`WORK_REQUIRED`,
+`CHANGE_TYPE_REQUIRED`, `DEPENDENCY_REQUIRED`). Cycles in `blocks` are rejected (`INVALID:
+dependency cycle`).
 
 When a human describes what they are working on, file it as issues: one `work:true` issue per
 unit an agent can finish, a `work:false` container only when several belong together, `blocks`
@@ -443,6 +468,7 @@ be needed and let the human find out by retrying.
 | `IMPORT_FAILED` | Tell them the import did not finish and why; the retry is in the Dash. Do not report setup as complete. |
 | `IMPORT_RUNNING` | Say it is in progress (n of total) and poll `setup_status`. One import per org at a time. |
 | `EMPTY_PROJECT` | Setup is complete and the project has no issues. **Do not stop at "empty queue".** Offer two things: describe what they are working on (you file the first issues, §3), or import a backlog (Linear, Jira, Asana, ClickUp, Shortcut) into **this** project (§11). |
+| `PLAN_UNKNOWN` | Not blocking. Nobody has said which subscription pays for this harness, so Retasc cannot tell what the work costs. `askHuman` carries the live list for the harness **you** are — never ask which provider, that came off your handshake. Record the answer with `set_plan`. Never guess: a wrong plan is worse than none, because nothing downstream can tell a guess from an answer. No answer ⇒ carry on, and do not raise it again this session. |
 | `GHOSTS_UNCLAIMED` | Not blocking. Mention once: an import left placeholder identities; they claim theirs on the Dash Team page, with `retasc identity`, or with `list_claimable_ghosts` → `claim_ghost` (only the one they explicitly pick). Never guess. |
 | `READY` | Call `next_issue`, or `queue_status` to show them where things stand. |
 
@@ -499,18 +525,39 @@ per-machine state a fresh clone does not carry. A container has neither, so the 
 behind it, on the credential. There are two container shapes, and which one you are in has
 nothing to do with which harness you run.
 
-**Shape A, the container can run a process and set environment** (Claude Code cloud, CI
-runners, most agent sandboxes). The normal stdio proxy works here unchanged, because the
-proxy reads `RETASC_MCP_KEY` from the environment *before* it consults the keystore. No
-`bind`, no keystore, no browser.
+**Shape A, the container can run a process** (Claude Code cloud, CI runners, most agent
+sandboxes). The marker starts on its own — since 1.49.0 a committed marker names
+`npx -y @retasc/cli@<version> mcp-proxy`, which needs no global install. What is left is
+the credential, and there are two ways to get one.
 
-1. A **human**, on their own machine, mints a key (`retasc key mint --hosted`, or the Dash) and sets
-   it as the platform's secret: `RETASC_MCP_KEY`, plus `RETASC_MCP_URL` only if the
-   deployment is self-hosted. There is no in-container door for this yet; ask for the
-   secret, never mint one yourself.
-2. In the container: `npx -y @retasc/cli@latest setup`. One command, no sign-in, and it
-   wires every harness that is present.
-3. Restart the harness, then `whoami`.
+**A1 — sign in from inside the container (RTSC-879, since 1.49.0). No secret anywhere.**
+This is the path when a human is in the chat with you, which in a cloud session they are.
+
+1. `npx -y @retasc/cli@latest bind --json`. It starts a device grant, prints an approve
+   URL and an eight-character code, and **exits** — it does not wait.
+2. Show your human BOTH lines. They open the URL on **any** device, a phone included: the
+   approval happens at the provider, so it does not have to be this machine, and nothing
+   redirects back here.
+3. Run the **same command again** once they say they have approved. It resumes the grant
+   it already started, signs in, and finishes binding. Repeat if they were slow; each run
+   is bounded and picks up where it left off.
+
+Do NOT start over between attempts. A second `bind` while one is pending issues a fresh
+code and invalidates the one they are looking at — the outcome state is `SIGN_IN_PENDING`
+precisely so you can tell "waiting on a click" from "nothing has started".
+
+Two doors stay shut, on purpose: **CI**, where nobody is there to approve anything, and
+**`RETASC_NO_BROWSER`**, which is a person declining browser auth. Both refuse
+immediately with a terminal outcome rather than emitting a code nobody will read.
+
+**A2 — a key from the platform's secret store.** Right for CI and for anything unattended.
+A human mints it on their own machine (`retasc key mint --hosted`, or the Dash) and sets
+`RETASC_MCP_KEY`, plus `RETASC_MCP_URL` only if the deployment is self-hosted. The proxy
+reads that variable *before* the keystore. Ask for the secret; never mint one yourself.
+
+Note the platform may not let you set it. A Claude Code cloud session started from the
+desktop button has no environment-variable door the session itself can reach, which is
+why A1 exists.
 
 **The key comes from the environment, never from a file.** `.githooks/pre-commit` refuses a
 staged `.mcp.json` containing `RETASC_MCP_KEY` or an `authorization` key, because a
@@ -550,13 +597,13 @@ org only). Credit is bought in the Dash.
 | Plumbing | `mint_session_key`, `record_session`, `name_workspace`, `release_issue`, `revoke_connector`, every read (a `next_batch` peek included) | $0.001 |
 | Heartbeat | `heartbeat` | $0.0001 |
 | Files | upload $0.003 + $0.001/MB; download $0.0005/MB per read | size-priced |
-| Free | `invite_member`, `list_invites`, `revoke_invite`, `accept_invite`, `suspend_member`, `reactivate_member`, `retire_member`, `usage_summary`, `billing_summary` | $0 |
+| Free | `invite_member`, `list_invites`, `revoke_invite`, `accept_invite`, `suspend_member`, `reactivate_member`, `retire_member`, `usage_summary`, `billing_summary`, `list_plans`, `set_plan` | $0 |
 
 **Gate**: an org that is `needs_reauth`, `canceled`, or `lapsed`, or over its monthly cap,
 refuses value-bearing writes with `BILLING_INACTIVE` / `MONTHLY_CAP_REACHED` and a
 `tellHuman`. Reads are never gated. **Exempt**, so work can wind down: `heartbeat`,
-`checkpoint`, `release_issue`, `revoke_connector`, `record_session`, `name_workspace`, and
-every membership tool. You cannot fix a billing refusal; only an owner can. Do not keep
+`checkpoint`, `release_issue`, `revoke_connector`, `record_session`, `name_workspace`,
+`set_plan`, and every membership tool. You cannot fix a billing refusal; only an owner can. Do not keep
 working read-only as if the session were healthy.
 
 ## 11. Intake, quarantine, imports, ghosts, connectors
@@ -582,12 +629,34 @@ working read-only as if the session were healthy.
   claims theirs once (`list_claimable_ghosts` → `claim_ghost` with the id **they** chose;
   `retasc identity`; or the Dash). A wrong claim re-attributes someone else's work permanently.
 
-## 12. Every MCP tool, by purpose (54)
+## 12. Every MCP tool, by purpose (56)
 
 Descriptions are self-describing at runtime; this is the map.
 
 **Identity and setup**: `whoami` · `setup_status` · `mint_session_key` (proxy) ·
-`name_workspace` (CLI) · `record_session` (proxy)
+`name_workspace` (CLI) · `record_session` (proxy) · `list_plans` · `set_plan`
+
+**The plan question** (`list_plans` / `set_plan`): which subscription pays for THIS
+agent's model calls. Retasc cannot see it — no hook payload, transcript field or
+telemetry attribute carries it, and the only machine source needs your human's own
+credential, which Retasc will never ask you to read. So a person answers, once.
+
+Only the TIER is ever asked. The PROVIDER is detected from your handshake, so both
+tools already know which harness you are and offer that harness's plans — a Codex
+session in a folder set up for Claude Code is offered ChatGPT tiers, and asking a human
+which provider they are on is asking a question the server has already answered.
+
+`setup_status` raises this itself as `PLAN_UNKNOWN` when it is outstanding, so you do
+not have to remember to ask. Call `list_plans` directly when you want it sooner; if its
+**shouldAsk** is false it is already answered (possibly by another agent of the same
+human on the same runtime) and you must not ask again.
+Otherwise put its **options** to your human AS A LIST TO PICK FROM, in the order
+given, plus **otherId** for a plan that is not listed (send what they type, verbatim —
+an unrecognised plan is expected, not an error) and **declinedId** for "prefer not to
+say".
+NEVER guess the plan or infer it from what you can see. The list is served, so read it
+rather than remembering it: a tier a vendor shipped this morning is on it now. Both
+tools are free, and `set_plan` writes only your own agent.
 
 **Dispatch and lease**: `next_issue(allLanes?)` · `next_batch(n?, claim?, allLanes?)` ·
 `claim_issue(identifier, claimToken?)` · `release_issue(identifier, claimToken?, note?)` ·
@@ -653,6 +722,7 @@ Install: `npm i -g @retasc/cli`, or run any command through `npx @retasc/cli@lat
 | `import [--org-id] [--source] [-y]` | Bring a tracker across from the terminal; the mapping is always asked. |
 | `triage [issue] [--org-id] [--json]` | List quarantined external work; read and approve one (interactive only). |
 | `billing [--org-id] [--json]` | Subscription, what is owed, charge and payment history. |
+| `plan [--org-id] [--agent <name>] [--json]` | Which plan pays for each agent. Lists them; `--agent` sets one from a served list. Also editable in the Dash under Agents. |
 | `claim [issue] [--id] [--all-lanes] [--base] [--dir] [--no-fetch] [--no-worktree] [--shell] [--print-path] [--json]` · `next` | **Human** convenience: claim over the workspace key and drop into a fresh worktree. Agents claim over MCP. |
 | `release [issue] --claim-token [--note]` | Hand a claim back. |
 | `checkpoint [issue] [--note] [--claim-token]` | Record a handoff note and renew the lease. |
@@ -686,6 +756,7 @@ Spawned by the harness, never typed: `mcp-proxy` and `mcp proxy` (hidden from `-
 | `INVALID: author ≠ reviewer`, reviewer inactive, placeholder | Bad `assignee` on a review. | Name an active, different human. |
 | `INVALID: cancel_reason required` | | Add `cancelReason`. |
 | `WORK_REQUIRED` / `DEPENDENCY_REQUIRED` | Create without `work` / without `blockedBy` or `noDependency`. | Add them. |
+| `CHANGE_TYPE_REQUIRED` | Create without `changeType`. | Add one of the eleven; the refusal lists them. |
 | `INVALID: dependency cycle` | The `blocks` edge would loop. | Rethink the edge. |
 | `BILLING_INACTIVE` / `MONTHLY_CAP_REACHED` | The org is gated. | Relay `tellHuman`; stop value-bearing writes. |
 | `EXPIRED` / `CONSUMED` | An invite or token is dead or already used. | Ask for a fresh one. |
@@ -765,5 +836,6 @@ Do not invent a workflow and attribute it to Retasc.
 | A wall of bogus type errors in a fresh worktree | Untracked dependencies | Run the repo's install step |
 | No Retasc tools at all inside a git worktree | CLI older than 1.45.0: the binding lookup stopped at the worktree's `.git` file | `npm i -g @retasc/cli@latest`, restart. Do NOT re-bind the worktree, that mints a second agent |
 | `bind` seems to hang with no output | It is waiting on the browser click | Post the approve URL; it prints before the wait |
-| `retasc (ENOENT)` at session start, or `retasc: command not found` | A container or fresh clone: the committed marker names a binary this machine never installed | `npx -y @retasc/cli@latest setup`, with `RETASC_MCP_KEY` set as a secret, then restart. §9, "In a container or cloud session" |
+| `retasc (ENOENT)` at session start, or `retasc: command not found` | A marker written before 1.49.0 names a bare `retasc` this machine never installed | Re-run `bind` (it now writes the portable npx form), or edit the marker to `"command": "npx", "args": ["-y", "@retasc/cli@latest", "mcp-proxy"]`. §9 |
+| MCP loads but every call is unauthenticated, in a container | The marker started, but this machine has no keystore and no `RETASC_MCP_KEY` | `npx -y @retasc/cli@latest bind --json`, relay the code to your human, run it again after they approve. §9, shape A1 |
 | Codex or Grok has the remote key in its config and every call is `UNAUTHORIZED` | The other tool's header key: Codex reads `http_headers`, Grok reads `headers`, and each ignores the other's without a word | Use the block `retasc key mint` prints for THAT tool |
