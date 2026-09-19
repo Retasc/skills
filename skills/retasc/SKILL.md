@@ -180,10 +180,30 @@ priority.
 
 ### Creating an issue (`save_issue` without `identifier`)
 
-Required: `title`, `work`, `changeType`, and **one** dependency declaration: `blockedBy: [ids]`
-or `noDependency: "one-line reason"`. A create missing any of them is rejected (`WORK_REQUIRED`,
-`CHANGE_TYPE_REQUIRED`, `DEPENDENCY_REQUIRED`). Cycles in `blocks` are rejected (`INVALID:
-dependency cycle`).
+Required: `title`, `work`, `changeType`, and **one** dependency declaration (`blockedBy: [ids]` or
+`noDependency: "one-line reason"`) — plus `reviewedSimilar`, but only when open issues actually
+look like this work. A create missing any of them is rejected (`WORK_REQUIRED`,
+`CHANGE_TYPE_REQUIRED`, `DEPENDENCY_REQUIRED`, `DUPLICATE_CHECK_REQUIRED`). Cycles in `blocks`
+are rejected (`INVALID: dependency cycle`).
+
+**The fourth one cannot be filled in blind, and that is the point.** `noDependency` is free text,
+so an agent can satisfy it without ever looking; `reviewedSimilar` is a list of issue ids only the
+server produces. Retasc scans your title AND body for issue mentions and for rare shared words,
+and refuses the create while any open issue looks like the same or adjacent work —
+`DUPLICATE_CHECK_REQUIRED`, which names them. Most creates never see it: with nothing that
+looks alike there is nothing to acknowledge. When there is, two ways through, both fine:
+
+- **File, read the refusal, re-call** with the ids it named. One extra round trip.
+- **Search first** (`list_issues`) and name them yourself. Passes in ONE call.
+
+Read them before you name them: the gate proves you were shown the candidates, never that you
+judged them right. If one of them **is** this work, do not create it — comment on it, or claim
+it. If one is adjacent, create and link it with `add_relation` after. A `blockedBy` on the create
+also counts as having read that issue — but declare one only where the dependency is real: an
+invented `blocks` edge clears the gate and then leaves your new issue undispatchable until the
+other one closes. The
+retry recomputes rather than trusting your list, so a look-alike another agent filed in between
+is surfaced again. Valid on a create only; on an update it is rejected.
 
 When a human describes what they are working on, file it as issues: one `work:true` issue per
 unit an agent can finish, a `work:false` container only when several belong together, `blocks`
@@ -211,6 +231,17 @@ Ordering of the eligible set:
 - **Effective priority** = the strongest of the issue's own rank and every non-terminal issue
   it transitively `blocks`. A Low blocker of an Urgent issue inherits Urgent. Deadline floors
   (§3) apply to own rank first, so they inherit too.
+- **Finish before start.** A `review` — finished work awaiting acceptance — is floored to at
+  least **High** from the moment it enters review, and at EQUAL effective rank it sorts
+  **ahead of any `todo`**. So what still goes before a fresh review is a `todo` whose
+  effective rank reaches **Urgent** — marked Urgent, or floored there by its own deadline
+  (§3: past 90% of its window, or overdue). Mark a real incident Urgent and it still
+  dispatches first; nothing at a weaker rank jumps ahead of work that is already done. The
+  floor then climbs with the review's own age — past ~21.6h it sorts Urgent, past 24h above
+  everything — so after a day it passes those too. Like a deadline floor it inherits up the
+  `blocks` chain, so a todo gating a review is pulled up with it. A **quarantined** external
+  review (stranger-authored, not yet approved) is withheld from dispatch entirely and its
+  clock starts only at approval, so an outside filer cannot climb by being ignored.
 - Tiebreak: oldest `createdAt` first.
 
 The response: `issue` (with `body`), `claimToken`, `claimExpiresAt`, `branch`, `activeClaims`
@@ -468,7 +499,6 @@ be needed and let the human find out by retrying.
 | `IMPORT_FAILED` | Tell them the import did not finish and why; the retry is in the Dash. Do not report setup as complete. |
 | `IMPORT_RUNNING` | Say it is in progress (n of total) and poll `setup_status`. One import per org at a time. |
 | `EMPTY_PROJECT` | Setup is complete and the project has no issues. **Do not stop at "empty queue".** Offer two things: describe what they are working on (you file the first issues, §3), or import a backlog (Linear, Jira, Asana, ClickUp, Shortcut) into **this** project (§11). |
-| `PLAN_UNKNOWN` | Not blocking. Nobody has said which subscription pays for this harness, so Retasc cannot tell what the work costs. `askHuman` carries the live list for the harness **you** are — never ask which provider, that came off your handshake. Record the answer with `set_plan`. Never guess: a wrong plan is worse than none, because nothing downstream can tell a guess from an answer. No answer ⇒ carry on, and do not raise it again this session. |
 | `GHOSTS_UNCLAIMED` | Not blocking. Mention once: an import left placeholder identities; they claim theirs on the Dash Team page, with `retasc identity`, or with `list_claimable_ghosts` → `claim_ghost` (only the one they explicitly pick). Never guess. |
 | `READY` | Call `next_issue`, or `queue_status` to show them where things stand. |
 
@@ -594,16 +624,16 @@ org only). Credit is bought in the Dash.
 | Dispatch | `next_issue`, `next_batch` (claiming), `claim_issue`, `add_relation`, `remove_relation` | $0.007 |
 | Work | `save_issue` create or body edit, `checkpoint`, `save_comment` | $0.005 |
 | Bookkeeping | `save_issue` status / priority / title / other edits, `save_label`, `save_attachment`, `obsolete_attachment`, `retract_comment` | $0.003 |
-| Plumbing | `mint_session_key`, `record_session`, `name_workspace`, `release_issue`, `revoke_connector`, every read (a `next_batch` peek included) | $0.001 |
+| Plumbing | `mint_session_key`, `mint_harness_key`, `record_session`, `name_workspace`, `release_issue`, `revoke_connector`, every read (a `next_batch` peek included) | $0.001 |
 | Heartbeat | `heartbeat` | $0.0001 |
 | Files | upload $0.003 + $0.001/MB; download $0.0005/MB per read | size-priced |
-| Free | `invite_member`, `list_invites`, `revoke_invite`, `accept_invite`, `suspend_member`, `reactivate_member`, `retire_member`, `usage_summary`, `billing_summary`, `list_plans`, `set_plan` | $0 |
+| Free | `invite_member`, `list_invites`, `revoke_invite`, `accept_invite`, `suspend_member`, `reactivate_member`, `retire_member`, `usage_summary`, `billing_summary`, `report_worktrees` | $0 |
 
 **Gate**: an org that is `needs_reauth`, `canceled`, or `lapsed`, or over its monthly cap,
 refuses value-bearing writes with `BILLING_INACTIVE` / `MONTHLY_CAP_REACHED` and a
 `tellHuman`. Reads are never gated. **Exempt**, so work can wind down: `heartbeat`,
 `checkpoint`, `release_issue`, `revoke_connector`, `record_session`, `name_workspace`,
-`set_plan`, and every membership tool. You cannot fix a billing refusal; only an owner can. Do not keep
+`report_worktrees`, `mint_harness_key`, and every membership tool. You cannot fix a billing refusal; only an owner can. Do not keep
 working read-only as if the session were healthy.
 
 ## 11. Intake, quarantine, imports, ghosts, connectors
@@ -634,34 +664,13 @@ working read-only as if the session were healthy.
 Descriptions are self-describing at runtime; this is the map.
 
 **Identity and setup**: `whoami` · `setup_status` · `mint_session_key` (proxy) ·
-`name_workspace` (CLI) · `record_session` (proxy) · `list_plans` · `set_plan`
-
-**The plan question** (`list_plans` / `set_plan`): which subscription pays for THIS
-agent's model calls. Retasc cannot see it — no hook payload, transcript field or
-telemetry attribute carries it, and the only machine source needs your human's own
-credential, which Retasc will never ask you to read. So a person answers, once.
-
-Only the TIER is ever asked. The PROVIDER is detected from your handshake, so both
-tools already know which harness you are and offer that harness's plans — a Codex
-session in a folder set up for Claude Code is offered ChatGPT tiers, and asking a human
-which provider they are on is asking a question the server has already answered.
-
-`setup_status` raises this itself as `PLAN_UNKNOWN` when it is outstanding, so you do
-not have to remember to ask. Call `list_plans` directly when you want it sooner; if its
-**shouldAsk** is false it is already answered (possibly by another agent of the same
-human on the same runtime) and you must not ask again.
-Otherwise put its **options** to your human AS A LIST TO PICK FROM, in the order
-given, plus **otherId** for a plan that is not listed (send what they type, verbatim —
-an unrecognised plan is expected, not an error) and **declinedId** for "prefer not to
-say".
-NEVER guess the plan or infer it from what you can see. The list is served, so read it
-rather than remembering it: a tier a vendor shipped this morning is on it now. Both
-tools are free, and `set_plan` writes only your own agent.
+`mint_harness_key` (proxy) · `name_workspace` (CLI) · `record_session` (proxy)
 
 **Dispatch and lease**: `next_issue(allLanes?)` · `next_batch(n?, claim?, allLanes?)` ·
 `claim_issue(identifier, claimToken?)` · `release_issue(identifier, claimToken?, note?)` ·
 `heartbeat(identifier, claimToken?)` · `checkpoint(identifier, note, claimToken?)` ·
-`check_claim(identifier)` · `queue_status()`
+`check_claim(identifier)` · `queue_status()` · `report_worktrees(worktrees)` (your PROXY
+calls this, not you — see §15)
 
 **Issues**: `save_issue(...)` (create or update; §3, §6) · `get_issue(identifier)` (body,
 labels, relations, `blockedByOpen`, deadline surface, `claim{heldBy, expiresAt, youHold}`) ·
@@ -698,7 +707,10 @@ yes) · `suspend_member(memberId)` (people) · `reactivate_member(memberId)` ·
 
 **Money**: `usage_summary()` (the meter) · `billing_summary()` (owner: the full picture)
 
-Every write carries a footer naming the org and project it landed in.
+Writes that land something a human can be wrong about — claiming an issue, saving one,
+commenting, importing, claiming a ghost — carry a footer naming the org and project it
+landed in. Bookkeeping writes (`heartbeat`, `checkpoint`, `report_worktrees`) do not:
+the footer is there for a human reading the transcript, and nobody reads those.
 
 ## 13. Every CLI command, by purpose
 
@@ -709,20 +721,19 @@ Install: `npm i -g @retasc/cli`, or run any command through `npx @retasc/cli@lat
 |---|---|
 | `login [--github \| --google]` · `logout` | Human sign-in (device flow). Management commands need it; MCP work does not. |
 | `whoami [--json]` | This folder's org / project / agent / session, then the signed-in user and their orgs. |
-| `bind [--org-id \| --org-name] [--project-id \| --project --prefix] [--agent] [--runtime] [-y] [--no-install] [--setup <token>] [--json]` | **The** way to bind a folder to one org + project: mint a workspace key, write keystore + marker, run `setup`. Loud on re-bind. `--json` when an agent drives it. |
+| `bind [--org-id \| --org-name] [--project-id \| --project --prefix] [--runtime] [-y] [--no-install] [--setup <token>] [--json]` | **The** way to bind a folder to one org + project: mint a workspace key, write keystore + marker, run `setup`. Loud on re-bind. `--json` when an agent drives it. |
 | `join <link \| code> [--no-bind] [--project-id] [-y] [--no-install]` | Invited teammate: sign in, redeem, claim identity, bind this folder, wire MCP. One command. |
 | `unbind [-y]` | Remove the keystore entry and MCP entry, revoke the key. |
 | `doctor` | Is this folder correctly and safely bound; can the launcher start; any illegal global server. |
 | `setup [--no-install]` | Wire the `auto` proxy entry into every harness on the machine, once. |
 | `init --project --prefix [--org \| --org-id] …` | Create org + project and bind, in one shot. `bind` is preferred for existing orgs. |
 | `org create --name` · `project create --org-id --name --prefix` · `project rename-prefix --project-id --prefix` | Owner management. Rename rewrites every identifier. |
-| `key mint --org-id --project-id [--agent] [--runtime] [--name] [--hosted] [--install]` · `key list --org-id` · `key rotate --key-id` · `key revoke --key-id` | Agent keys for hosted agents / CI or manual wiring. Shown once. `--hosted` marks a key that will never have a local watchdog: it is then asked to self-renew rather than told to run `bind`, and the Agents page says "no folder (hosted)" as a fact (RTSC-859). A human runs `mint` and `rotate`; an agent never does, the output is a raw credential. |
+| `key mint --org-id --project-id [--runtime] [--name] [--hosted] [--install]` · `key list --org-id` · `key rotate --key-id` · `key revoke --key-id` | Agent keys for hosted agents / CI or manual wiring. Shown once. `--hosted` marks a key that will never have a local watchdog: it is then asked to self-renew rather than told to run `bind`, and the Agents page says "no folder (hosted)" as a fact (RTSC-859). A human runs `mint` and `rotate`; an agent never does, the output is a raw credential. |
 | `members invite [--org-id] [--expires-days] [--project-id …]` · `members list --org-id` · `members revoke --invite-id` | Invite humans. Omitted `--project-id` asks; skipped = all projects. |
 | `identity [--org-id]` | Claim an imported placeholder as yourself. Never scriptable. |
 | `import [--org-id] [--source] [-y]` | Bring a tracker across from the terminal; the mapping is always asked. |
 | `triage [issue] [--org-id] [--json]` | List quarantined external work; read and approve one (interactive only). |
 | `billing [--org-id] [--json]` | Subscription, what is owed, charge and payment history. |
-| `plan [--org-id] [--agent <name>] [--json]` | Which plan pays for each agent. Lists them; `--agent` sets one from a served list. Also editable in the Dash under Agents. |
 | `claim [issue] [--id] [--all-lanes] [--base] [--dir] [--no-fetch] [--no-worktree] [--shell] [--print-path] [--json]` · `next` | **Human** convenience: claim over the workspace key and drop into a fresh worktree. Agents claim over MCP. |
 | `release [issue] --claim-token [--note]` | Hand a claim back. |
 | `checkpoint [issue] [--note] [--claim-token]` | Record a handoff note and renew the lease. |
@@ -756,6 +767,7 @@ Spawned by the harness, never typed: `mcp-proxy` and `mcp proxy` (hidden from `-
 | `INVALID: author ≠ reviewer`, reviewer inactive, placeholder | Bad `assignee` on a review. | Name an active, different human. |
 | `INVALID: cancel_reason required` | | Add `cancelReason`. |
 | `WORK_REQUIRED` / `DEPENDENCY_REQUIRED` | Create without `work` / without `blockedBy` or `noDependency`. | Add them. |
+| `DUPLICATE_CHECK_REQUIRED` | Open issues look like the same or adjacent work, and you have not said you read them. | Read the ones it names. If one IS this work, don't create — comment or claim. Otherwise re-call with `reviewedSimilar:["RTSC-NN", …]`. |
 | `CHANGE_TYPE_REQUIRED` | Create without `changeType`. | Add one of the eleven; the refusal lists them. |
 | `INVALID: dependency cycle` | The `blocks` edge would loop. | Rethink the edge. |
 | `BILLING_INACTIVE` / `MONTHLY_CAP_REACHED` | The org is gated. | Relay `tellHuman`; stop value-bearing writes. |
@@ -767,16 +779,59 @@ Spawned by the harness, never typed: `mcp-proxy` and `mcp proxy` (hidden from `-
 30-minute lease with reclaim; `claimToken` / session fencing on every write to a held issue
 and on `done` / `canceled`; dependency blocking from `blocks` edges (never dispatched, never
 claimable); effective-priority order; lane scoping by default; the 7-claim cap and the monthly
-spend cap; project as a hard boundary; `work` and the dependency declaration on create;
+spend cap; project as a hard boundary; `work`, the dependency declaration and the duplicate
+acknowledgement on create;
 `cancelReason`; `handoff` plus an active, different-principal `assignee` to enter and stay in
 `review`; holding the review claim to accept; author ≠ reviewer; quarantine of external intake
 until a human signs it; owner / admin gates on membership, imports, connectors, billing.
 
 **Not enforced, and not modelled**: branches, PRs, CI, commit messages, merges, tests,
-"verified". `done` never waits on a check. Worktree isolation is required by the claim
-contract and stated on every claim, but the server cannot see git and does not check it. Any
-process beyond that (review policy, commit format, who merges) is the team's own convention.
-Do not invent a workflow and attribute it to Retasc.
+"verified". `done` never waits on a check. Any process beyond the claim contract (review
+policy, commit format, who merges) is the team's own convention. Do not invent a workflow and
+attribute it to Retasc.
+
+**The one exception: isolation.** Retasc's promise is that no two agents collide on the same
+work. The server guarantees that for *issues* (claims are atomic) but cannot see *files*, so
+the promise needs one condition on the client side: **one isolated working copy per agent,
+per issue.** That is a workflow opinion, and Retasc holds it deliberately, because without it
+the guarantee is false.
+
+The implementation is **git worktrees**. Git is assumed for any work that edits files, and a
+worktree is the strongest isolation git offers: shared objects and refs, instant creation,
+native reaping, and the whole fleet visible in one `git worktree list`. A clone or a per-task
+container gives the same isolation and is acceptable where a worktree is not possible; a
+shared checkout is not.
+
+This is the same category as `author ≠ reviewer`: a rule held because the guarantee depends
+on it, not because it is a nicer process. It is REQUIRED by the claim contract and stated on
+every claim; the server does not check it, because the server cannot see git. Because git and
+worktrees are assumed, a client-side component may *read* local git to make in-flight work
+visible. What the server may do with that fact is bounded the same way lane scoping is:
+**dispatch may withhold on it** (`next_issue` / `next_batch` skip work someone is seen to be
+on), but **nothing may refuse an explicit `claim_issue`** — the worker reclaims its own work,
+and a deliberate override stays possible and attributable.
+
+**How that is built (RTSC-962): the provisional hold.** Your mcp-proxy watches for git
+worktrees on `rtsc-NN/<slug>` branches that exist on your machine and that no live claim
+covers, and reports them with `report_worktrees` — a machine tool you never call yourself.
+The server records each as a **hold** on that issue. A hold does three things and nothing
+else: it appears on `get_issue` / `list_issues` as `hold {branch, detectedAt, lastSeenAt}`
+and as a rider on the read; `next_issue` / `next_batch` withhold the issue and
+`queue_status` counts it as `heldByObservation`; and `save_issue work:false` is refused
+over it. It lapses 60 minutes after the last sighting, and an inactive worktree (clean,
+no commit in 24h) is never reported at all, so an abandoned directory cannot park work.
+
+**A hold is not a lease.** It has no token, `heartbeat` / `checkpoint` / `done` do not
+accept one, and `check_claim` reports it as not held. **`claim_issue` is never refused
+because of one** — a named claim from any session converts it into a real claim, which is
+how an agent that forgot to claim gets its own work back. If a read tells you somebody is
+on an issue: claim it if that is you, and if it is not, go and look at the branch rather
+than starting a second one.
+
+**What it does NOT cover.** This widens the promise from "no two agents *hold* the same
+issue" to "no two agents *work* the same issue" — **for sessions running the mcp-proxy**.
+An agent talking to `mcp.retasc.com` directly (a cloud session, a chat connector, a phone)
+has no local process to see its filesystem, so for those the isolation rule stays advisory.
 
 ## 16. Explaining Retasc to a confused human
 
