@@ -420,6 +420,25 @@ If no `retasc` server is wired into this harness, one of:
   every harness on the machine (Claude Code, Codex, Cursor, OpenCode, Gemini CLI, Grok), then
   the human restarts.
 
+**Pi is the exception, and it is wired by the human, not by `setup`.** Pi ships no MCP client
+at all — its own README says so under Philosophy — so there is no config for `setup` to write
+and it will never appear in that receipt. What Pi needs is an MCP client installed into Pi
+itself, once:
+
+```
+pi install npm:pi-mcp-adapter
+```
+
+After that `retasc bind` is the whole of it: the adapter reads the same `./.mcp.json` marker
+every other client reads, so the folder still decides the org and no key goes anywhere new.
+Restart Pi and the tools are there. `pi-mcp-adapter` is a third-party package, not ours — it
+is the route Pi's own author points at, and what makes it work is that our marker is standard,
+not that we ship anything for Pi.
+
+One thing to expect rather than debug: the adapter deliberately exposes MCP servers through a
+single lazy proxy tool instead of registering every tool up front, so `next_issue` will not be
+sitting in your tool list the way it is under the stock proxy. Ask for it by name.
+
 Node 18+ is required for the CLI. If `node` is missing, **ask** before installing it; say it
 takes about a minute and needs no admin password.
 
@@ -526,6 +545,17 @@ launcher starts, illegal global entries).
   into every detected harness. The entry names no workspace; the spawned proxy resolves the
   folder it started in against the keystore. One machine-wide wiring, per-folder routing.
   Re-run it after installing a new harness.
+- **Pi is NOT in that registry and is not a gap.** It ships no MCP client, so there is no
+  file for `setup` to write; a human installs one into Pi with `pi install npm:pi-mcp-adapter`
+  and the adapter then reads the ordinary `./.mcp.json` marker. Everything below about the
+  keystore and routing holds unchanged — what differs is only who wires the client.
+  The proxy DOES run there: the marker is what the adapter spawns, so a Pi session mints a
+  session key like any other (measured — `whoami` reported `LittleDev#69016`).
+  **But it is short-lived, and that is the part to plan around.** The adapter starts a server
+  when a tool is used and does not keep it resident, so a proxy that lives for the length of a
+  call never reaches its 10-minute heartbeat. Do not assume the watchdog is renewing your
+  lease under Pi: `checkpoint` at every long-silence boundary, and use `check_claim` to see
+  whether `lastRenewedAt` is actually moving (§5).
 - **`retasc mcp-proxy`** (spawned by the harness, stdio): forwards JSON-RPC to the remote MCP;
   mints a **session key** at startup; records the transcript id and model (`record_session`)
   and the folder name (`name_workspace`); **heartbeats** every 10 minutes for claims it saw;
