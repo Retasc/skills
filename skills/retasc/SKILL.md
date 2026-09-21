@@ -419,6 +419,12 @@ If no `retasc` server is wired into this harness, one of:
 - Or you run the CLI once: `npx @retasc/cli@latest setup` wires the stdio watchdog proxy into
   every harness on the machine (Claude Code, Codex, Cursor, OpenCode, Gemini CLI, Grok), then
   the human restarts.
+  **After it reports, check whether Pi is here** (`~/.pi/agent`, or `pi` on PATH). It is not
+  one of those six and its receipt will not mention it. If Pi is on the machine, tell your
+  human in the same breath as the success: `setup` wired the rest and could not wire Pi,
+  because Pi ships no MCP client and there is no config to write. Then **offer** the command
+  below — do not run it unasked, and if Pi already has an MCP extension, say so and change
+  nothing.
 
 **Pi needs one thing first: an MCP extension.** Pi ships no MCP client of its own, by
 design — its README says so under Philosophy — so `retasc setup` has no config to write for
@@ -549,6 +555,12 @@ launcher starts, illegal global entries).
   into every detected harness. The entry names no workspace; the spawned proxy resolves the
   folder it started in against the keystore. One machine-wide wiring, per-folder routing.
   Re-run it after installing a new harness.
+  **WHENEVER YOU RUN IT, CHECK FOR PI AFTERWARDS** — `~/.pi/agent` exists, or `pi` is on
+  PATH. `setup` wires six harnesses and says nothing about Pi, because there is nothing for
+  it to write (below), so a machine with Pi on it is left half-done and the receipt looks
+  complete. You are the only thing that notices. This matters most when you are NOT Pi: an
+  agent in Claude Code that sets a machine up and never mentions Pi leaves a human to
+  discover it days later with nothing connecting the two events.
 - **Pi is NOT in that registry and is not a gap.** It ships no MCP client, so there is no
   file for `setup` to write; a human installs one into Pi with `pi install npm:pi-mcp-adapter`
   and the adapter then reads the ordinary `./.mcp.json` marker. Everything below about the
