@@ -420,24 +420,28 @@ If no `retasc` server is wired into this harness, one of:
   every harness on the machine (Claude Code, Codex, Cursor, OpenCode, Gemini CLI, Grok), then
   the human restarts.
 
-**Pi is the exception, and it is wired by the human, not by `setup`.** Pi ships no MCP client
-at all — its own README says so under Philosophy — so there is no config for `setup` to write
-and it will never appear in that receipt. What Pi needs is an MCP client installed into Pi
-itself, once:
+**Pi needs one thing first: an MCP extension.** Pi ships no MCP client of its own, by
+design — its README says so under Philosophy — so `retasc setup` has no config to write for
+it and Pi never appears in that receipt. That is expected, not a failure.
+
+Pi's own answer is an extension, and `pi-mcp-adapter` is the common one:
 
 ```
 pi install npm:pi-mcp-adapter
 ```
 
-After that `retasc bind` is the whole of it: the adapter reads the same `./.mcp.json` marker
-every other client reads, so the folder still decides the org and no key goes anywhere new.
-Restart Pi and the tools are there. `pi-mcp-adapter` is a third-party package, not ours — it
-is the route Pi's own author points at, and what makes it work is that our marker is standard,
-not that we ship anything for Pi.
+It is third-party, not ours, and not the only option — any Pi MCP extension works, because
+what it reads is the ordinary `./.mcp.json` marker every other client reads. If the human
+already has one, use it; do NOT install a second, and never overwrite a setup they chose.
 
-One thing to expect rather than debug: the adapter deliberately exposes MCP servers through a
-single lazy proxy tool instead of registering every tool up front, so `next_issue` will not be
-sitting in your tool list the way it is under the stock proxy. Ask for it by name.
+**With an extension present, Pi is an ordinary MCP client and the rest of this document
+applies to it unchanged** — it spawns the proxy from the marker, handshakes keyless, gets
+`setup_status`, and is walked through `bind` exactly like every other harness. Nothing below
+is a special case for Pi.
+
+One thing to expect rather than debug: an adapter may present MCP servers through a single
+lazy proxy tool instead of registering each one, so `next_issue` will not be sitting in your
+tool list the way it is under the stock proxy. Ask for it by name.
 
 Node 18+ is required for the CLI. If `node` is missing, **ask** before installing it; say it
 takes about a minute and needs no admin password.
@@ -923,4 +927,7 @@ has no local process to see its filesystem, so for those the isolation rule stay
 | `bind` seems to hang with no output | It is waiting on the browser click | Post the approve URL; it prints before the wait |
 | `retasc (ENOENT)` at session start, or `retasc: command not found` | A marker written before 1.49.0 names a bare `retasc` this machine never installed | Re-run `bind` (it now writes the portable npx form), or edit the marker to `"command": "npx", "args": ["-y", "@retasc/cli@latest", "mcp-proxy"]`. §9 |
 | MCP loads but every call is unauthenticated, in a container | The marker started, but this machine has no keystore and no `RETASC_MCP_KEY` | `npx -y @retasc/cli@latest bind --json`, relay the code to your human, run it again after they approve. §9, shape A1 |
+| Pi is running and has no Retasc tools | No MCP extension installed in Pi, or Pi was not restarted after installing one | Pi ships no MCP client; install one (`pi install npm:pi-mcp-adapter`, or whichever they prefer) and restart Pi. §0 |
+| **You ARE Pi** and have no Retasc tools | Same cause, and you can fix it: you have a bash tool | Install an extension yourself, then ask your human to restart you — a running Pi cannot load one mid-session. Never replace an extension they already chose. |
+| `retasc setup` named six harnesses and never mentioned Pi | Expected. Pi is not in the registry because there is no config to write for it | Nothing is broken. Pi is wired by its own extension, not by `setup`. §0 |
 | Codex or Grok has the remote key in its config and every call is `UNAUTHORIZED` | The other tool's header key: Codex reads `http_headers`, Grok reads `headers`, and each ignores the other's without a word | Use the block `retasc key mint` prints for THAT tool |
