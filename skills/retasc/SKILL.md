@@ -644,8 +644,10 @@ makes the binary real by installing the CLI, so the committed marker's `command:
 resolves afterwards; if that install cannot happen (no write access to the npm prefix) the
 marker still names a command that does not exist, and in Claude Code a project-scope
 `.mcp.json` outranks the user-scope entry `setup` just wrote, so it keeps winning and
-keeps failing. Fix it in the marker itself: `"command": "npx"`, `"args": ["-y",
-"@retasc/cli@latest", "mcp-proxy"]`. And with no key in the environment the proxy still
+keeps failing. Fix it by re-running `bind` in that folder — it rewrites the marker with
+the launcher that is right for THAT machine. Never hand-write `@latest` into a marker:
+npx caches by the literal spec and never re-resolves a tag, so it freezes to whatever
+was newest that day (RTSC-1091). And with no key in the environment the proxy still
 starts and `setup_status` answers `NOT_CONNECTED` with the instruction, which is a
 different failure from ENOENT and means the credential, not the launcher.
 
@@ -937,7 +939,8 @@ has no local process to see its filesystem, so for those the isolation rule stay
 | A wall of bogus type errors in a fresh worktree | Untracked dependencies | Run the repo's install step |
 | No Retasc tools at all inside a git worktree | CLI older than 1.45.0: the binding lookup stopped at the worktree's `.git` file | `npm i -g @retasc/cli@latest`, restart. Do NOT re-bind the worktree, that mints a second agent |
 | `bind` seems to hang with no output | It is waiting on the browser click | Post the approve URL; it prints before the wait |
-| `retasc (ENOENT)` at session start, or `retasc: command not found` | A marker written before 1.49.0 names a bare `retasc` this machine never installed | Re-run `bind` (it now writes the portable npx form), or edit the marker to `"command": "npx", "args": ["-y", "@retasc/cli@latest", "mcp-proxy"]`. §9 |
+| `retasc (ENOENT)` at session start, or `retasc: command not found` | A marker written before 1.49.0 names a bare `retasc` this machine never installed | Re-run `bind` in that folder — it writes the launcher that machine can actually start. Do NOT hand-write `@latest`; see the row below. §9 |
+| Tools work but a feature shipped releases ago is missing, with no error | The marker says `@retasc/cli@latest` and npx is serving a cached old copy — it caches by the literal spec and never re-resolves a tag. Measured: a folder ran 1.51.0 for eight days while `retasc --version` said 1.56.0 | Re-run `bind` (it pins). `npm i -g` does NOT fix this: the global binary and the npx cache are different copies, and the proxy loads the npx one |
 | MCP loads but every call is unauthenticated, in a container | The marker started, but this machine has no keystore and no `RETASC_MCP_KEY` | `npx -y @retasc/cli@latest bind --json`, relay the code to your human, run it again after they approve. §9, shape A1 |
 | Pi is running and has no Retasc tools | No MCP extension installed in Pi, or Pi was not restarted after installing one | Pi ships no MCP client; install one (`pi install npm:pi-mcp-adapter`, or whichever they prefer) and restart Pi. §0 |
 | **You ARE Pi** and have no Retasc tools | Same cause, and you can fix it: you have a bash tool | Install an extension yourself, then ask your human to restart you — a running Pi cannot load one mid-session. Never replace an extension they already chose. |
