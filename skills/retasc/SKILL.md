@@ -276,7 +276,8 @@ cap per org.
 - **Who renews:**
   - Stock setup (the `retasc mcp-proxy` watchdog in front of the MCP): the proxy heartbeats
     every 10 minutes for every claim **it saw this session make**. Silent multi-hour work is
-    safe. Process death, machine sleep, and key rotation stop it.
+    safe. Process death, machine sleep, and key rotation stop it. A `/clear` does not: the
+    window keeps renewing the claims the earlier conversation took (see the notice below).
   - Direct HTTP MCP with no proxy, echoing the `Mcp-Session-Id` we hand you at `initialize`
     (a cloud session, a claude.ai connector, any compliant MCP client): **your own calls**
     renew, a read as much as a write (RTSC-858). ONE call renews EVERY claim that session
@@ -304,6 +305,12 @@ cap per org.
   `claimToken`: the lease moves onto this session (`rebound:true`, fresh token, checkpoint
   untouched) and the proxy starts renewing it again. Only the token can do this; a key cannot,
   because every agent in a folder shares the workspace key.
+- **"This window still holds RTSC-X from the previous conversation"**: in Claude Code, a
+  `/clear` or `/resume` starts a new conversation in a window whose proxy still holds and
+  renews that claim. Act on it, never ignore it: if the human asked to continue RTSC-X, carry
+  on (you hold it; no new claim). If they asked for other work, `release_issue` RTSC-X first
+  (the same session is recognized without the token; if the release is refused, tell them),
+  then claim the new work. If it is unclear, ask them whether to keep or release it.
 - `CLAIM_LOST` on a heartbeat means the lease already expired. It cannot be revived; re-claim.
 - `release_issue(identifier, claimToken?, note?)` returns it to the pool (`todo`, or `review`
   for a review claim). Pass `note` as a final handoff.
