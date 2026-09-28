@@ -305,9 +305,11 @@ cap per org.
   `claimToken`: the lease moves onto this session (`rebound:true`, fresh token, checkpoint
   untouched) and the proxy starts renewing it again. Only the token can do this; a key cannot,
   because every agent in a folder shares the workspace key.
-- **"This window still holds RTSC-X from the previous conversation"**: in Claude Code, a
-  `/clear` or `/resume` starts a new conversation in a window whose proxy still holds and
-  renews that claim. Act on it, never ignore it: if the human asked to continue RTSC-X, carry
+- **"This window still holds RTSC-X from the previous conversation"**: a `/clear` or
+  `/resume` started a new conversation in a window that still holds and renews that claim.
+  In Claude Code (and Codex) it opens the conversation; in every other harness it arrives
+  on your next Retasc tool result (RTSC-1155). Where the harness restarted the proxy (Pi),
+  the new proxy has already taken the claim over for you. Act on it, never ignore it: if the human asked to continue RTSC-X, carry
   on (you hold it; no new claim). If they asked for other work, `release_issue` RTSC-X first
   (the same session is recognized without the token; if the release is refused, tell them),
   then claim the new work. If it is unclear, ask them whether to keep or release it.
@@ -796,7 +798,8 @@ Install: `npm i -g @retasc/cli`, or run any command through `npx @retasc/cli@lat
 | `config auto-update on\|off` | Automatic updates, ON by default: once a day the watchdog checks npm in the background and, if a newer CLI is out, installs it; it takes effect in the next session, never mid-session. Off in CI, or with `RETASC_AUTO_UPDATE=0`. The choice is kept until changed. `doctor` shows the state and the last update. |
 
 Spawned by the harness, never typed: `mcp-proxy` and `mcp proxy` (hidden from `--help`),
-`hook session-start` and `hook model-switch` (listed under `retasc hook --help`).
+`hook session-start`, `hook model-switch` and `hook prompt` (Cursor's per-prompt hook,
+RTSC-1155), listed under `retasc hook --help`.
 
 ## 14. Error vocabulary, and what to do
 
