@@ -562,23 +562,16 @@ launcher starts, illegal global entries).
   into every detected harness. The entry names no workspace; the spawned proxy resolves the
   folder it started in against the keystore. One machine-wide wiring, per-folder routing.
   Re-run it after installing a new harness.
-  **WHENEVER YOU RUN IT, CHECK FOR PI AFTERWARDS** — `~/.pi/agent` exists, or `pi` is on
-  PATH. `setup` wires six harnesses and says nothing about Pi, because there is nothing for
-  it to write (below), so a machine with Pi on it is left half-done and the receipt looks
-  complete. You are the only thing that notices. This matters most when you are NOT Pi: an
-  agent in Claude Code that sets a machine up and never mentions Pi leaves a human to
-  discover it days later with nothing connecting the two events.
-- **Pi is NOT in that registry and is not a gap.** It ships no MCP client, so there is no
-  file for `setup` to write; a human installs one into Pi with `pi install npm:pi-mcp-adapter`
-  and the adapter then reads the ordinary `./.mcp.json` marker. Everything below about the
-  keystore and routing holds unchanged — what differs is only who wires the client.
-  The proxy DOES run there: the marker is what the adapter spawns, so a Pi session mints a
-  session key like any other (measured — `whoami` reported `LittleDev#69016`).
-  **But it is short-lived, and that is the part to plan around.** The adapter starts a server
-  when a tool is used and does not keep it resident, so a proxy that lives for the length of a
-  call never reaches its 10-minute heartbeat. Do not assume the watchdog is renewing your
-  lease under Pi: `checkpoint` at every long-silence boundary, and use `check_claim` to see
-  whether `lastRenewedAt` is actually moving (§5).
+- **Pi** (RTSC-1154): `setup` also writes Pi's entry, into Pi's own `~/.pi/agent/mcp.json`
+  (or `$PI_CODING_AGENT_DIR/mcp.json`), with `"lifecycle": "lazy-keep-alive"` (started on
+  first use, never closed for idleness). Pi ships no MCP
+  client, so a human still installs one (`pi install npm:pi-mcp-adapter`); without it the
+  entry is inert. The keep-alive is the point: the adapter's default closes an idle server
+  after 10 minutes, which killed the watchdog and let your leases lapse while you worked.
+  The adapter merges servers field by field, so a project `./.mcp.json` that also names
+  `retasc` keeps its workspace and still inherits the lifecycle. A proxy Pi launches adds
+  the entry itself when it is missing, so machines set up before this heal on their own.
+  Still `checkpoint` at long-silence boundaries and use `check_claim` if in doubt (§5).
 - **`retasc mcp-proxy`** (spawned by the harness, stdio): forwards JSON-RPC to the remote MCP;
   mints a **session key** at startup; records the transcript id and model (`record_session`)
   and the folder name (`name_workspace`); **heartbeats** every 10 minutes for claims it saw;
@@ -953,5 +946,5 @@ has no local process to see its filesystem, so for those the isolation rule stay
 | MCP loads but every call is unauthenticated, in a container | The marker started, but this machine has no keystore and no `RETASC_MCP_KEY` | `npx -y @retasc/cli@latest bind --json`, relay the code to your human, run it again after they approve. §9, shape A1 |
 | Pi is running and has no Retasc tools | No MCP extension installed in Pi, or Pi was not restarted after installing one | Pi ships no MCP client; install one (`pi install npm:pi-mcp-adapter`, or whichever they prefer) and restart Pi. §0 |
 | **You ARE Pi** and have no Retasc tools | Same cause, and you can fix it: you have a bash tool | Install an extension yourself, then ask your human to restart you — a running Pi cannot load one mid-session. Never replace an extension they already chose. |
-| `retasc setup` named six harnesses and never mentioned Pi | Expected. Pi is not in the registry because there is no config to write for it | Nothing is broken. Pi is wired by its own extension, not by `setup`. §0 |
+| A Pi agent lost its claim after sitting idle for ~10 minutes | `pi-mcp-adapter`'s default lifecycle closes an idle server, killing the watchdog | `retasc setup` (or any Pi session on a current CLI) writes `"lifecycle": "lazy-keep-alive"` into `~/.pi/agent/mcp.json`. §9 |
 | Codex or Grok has the remote key in its config and every call is `UNAUTHORIZED` | The other tool's header key: Codex reads `http_headers`, Grok reads `headers`, and each ignores the other's without a word | Use the block `retasc key mint` prints for THAT tool |
