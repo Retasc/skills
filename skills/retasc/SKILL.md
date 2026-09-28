@@ -652,9 +652,9 @@ resolves afterwards; if that install cannot happen (no write access to the npm p
 marker still names a command that does not exist, and in Claude Code a project-scope
 `.mcp.json` outranks the user-scope entry `setup` just wrote, so it keeps winning and
 keeps failing. Fix it by re-running `bind` in that folder — it rewrites the marker with
-the launcher that is right for THAT machine. Never hand-write `@latest` into a marker:
-npx caches by the literal spec and never re-resolves a tag, so it freezes to whatever
-was newest that day (RTSC-1091). And with no key in the environment the proxy still
+the launcher that is right for THAT machine. A hand-written marker should say
+`@retasc/cli@latest`, which is what `bind` writes: npx re-checks a tag on every start, so
+it stays current, where a pinned version stays on that version (RTSC-1153). And with no key in the environment the proxy still
 starts and `setup_status` answers `NOT_CONNECTED` with the instruction, which is a
 different failure from ENOENT and means the credential, not the launcher.
 
@@ -781,7 +781,7 @@ Install: `npm i -g @retasc/cli`, or run any command through `npx @retasc/cli@lat
 | `unbind [-y]` | Remove the keystore entry and MCP entry, revoke the key. |
 | `doctor` | Is this folder correctly and safely bound; can the launcher start; any illegal global server. |
 | `setup [--no-install]` | Wire the `auto` proxy entry into every harness on the machine, once. |
-| `update` | Upgrade this machine to the CLI's own version: a global install if there is one, the harness entries, and every bound folder's npx marker. No sign-in, no prompt, any folder. Run it pinned: `npx -y @retasc/cli@<version> update`. |
+| `update` | Bring this machine up to date now: the global install if there is one, the harness entries, and any folder marker still pinned to an old version (moved to `@latest`). No sign-in, no prompt, any folder. A build that is behind hands over to the newest. Rarely needed: the CLI updates itself (below). |
 | `init --project --prefix [--org \| --org-id] …` | Create org + project and bind, in one shot. `bind` is preferred for existing orgs. |
 | `org create --name` · `project create --org-id --name --prefix` · `project rename-prefix --project-id --prefix` | Owner management. Rename rewrites every identifier. |
 | `key mint --org-id --project-id [--runtime] [--name] [--hosted] [--install]` · `key list --org-id` · `key rotate --key-id` · `key revoke --key-id` | Agent keys for hosted agents / CI or manual wiring. Shown once. `--hosted` marks a key that will never have a local watchdog: it is then asked to self-renew rather than told to run `bind`, and the Agents page says "no folder (hosted)" as a fact (RTSC-859). A human runs `mint` and `rotate`; an agent never does, the output is a raw credential. |
@@ -799,7 +799,8 @@ Install: `npm i -g @retasc/cli`, or run any command through `npx @retasc/cli@lat
 | `issue show [issue] [--json]` · `issue list [--status] [--priority] [--label] [--author] [--assignee] [--sla] [--limit] [--json]` | Read the queue from a terminal over the folder's key. |
 | `gate install [--prefix] [--no-hook] [--no-action]` | Optional commit-msg hook + GitHub Action requiring `PREFIX-NN` or `[no-issue]`. Opt-in process; Retasc never enforces it. |
 | `mcp install --key [--scope local \| project] [--url] [--no-watchdog]` | Manual wiring with a raw key (older form; `setup` + `bind` is the current path). |
-| `config` | Resolved paths and endpoints. |
+| `config` | Resolved paths, endpoints, and whether auto-update is on. |
+| `config auto-update on\|off` | Automatic updates, ON by default: once a day the watchdog checks npm in the background and, if a newer CLI is out, installs it; it takes effect in the next session, never mid-session. Off in CI, or with `RETASC_AUTO_UPDATE=0`. The choice is kept until changed. `doctor` shows the state and the last update. |
 
 Spawned by the harness, never typed: `mcp-proxy` and `mcp proxy` (hidden from `--help`),
 `hook session-start` and `hook model-switch` (listed under `retasc hook --help`).
@@ -948,7 +949,7 @@ has no local process to see its filesystem, so for those the isolation rule stay
 | No Retasc tools at all inside a git worktree | CLI older than 1.45.0: the binding lookup stopped at the worktree's `.git` file | `npm i -g @retasc/cli@latest`, restart. Do NOT re-bind the worktree, that mints a second agent |
 | `bind` seems to hang with no output | It is waiting on the browser click | Post the approve URL; it prints before the wait |
 | `retasc (ENOENT)` at session start, or `retasc: command not found` | A marker written before 1.49.0 names a bare `retasc` this machine never installed | Re-run `bind` in that folder — it writes the launcher that machine can actually start. Do NOT hand-write `@latest`; see the row below. §9 |
-| Tools work but a feature shipped releases ago is missing, with no error | The marker says `@retasc/cli@latest` and npx is serving a cached old copy — it caches by the literal spec and never re-resolves a tag. Measured: a folder ran 1.51.0 for eight days while `retasc --version` said 1.56.0 | `npx -y @retasc/cli@<version> update` (it re-pins every marker on the machine), then restart. `npm i -g` alone does NOT fix this: the global binary and the npx cache are different copies, and the proxy loads the npx one |
+| Tools work but a feature shipped releases ago is missing, with no error | The session started before the update landed (it keeps the build it started with), auto-update is off, or the marker is pinned to an old version such as `@retasc/cli@1.56.0` | Restart the session first. Still old: `retasc doctor` says whether auto-update is on and what it last did; `npx -y @retasc/cli@latest update` moves pinned markers to `@latest`, then restart. `npm i -g` alone does NOT fix a pinned npx marker: the global binary and the npx cache are different copies |
 | MCP loads but every call is unauthenticated, in a container | The marker started, but this machine has no keystore and no `RETASC_MCP_KEY` | `npx -y @retasc/cli@latest bind --json`, relay the code to your human, run it again after they approve. §9, shape A1 |
 | Pi is running and has no Retasc tools | No MCP extension installed in Pi, or Pi was not restarted after installing one | Pi ships no MCP client; install one (`pi install npm:pi-mcp-adapter`, or whichever they prefer) and restart Pi. §0 |
 | **You ARE Pi** and have no Retasc tools | Same cause, and you can fix it: you have a bash tool | Install an extension yourself, then ask your human to restart you — a running Pi cannot load one mid-session. Never replace an extension they already chose. |
