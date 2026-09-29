@@ -464,7 +464,14 @@ takes about a minute and needs no admin password.
 ### Step 1: connected but keyless (`NOT_CONNECTED`)
 
 With no credential the server exposes **one tool**, `setup_status`, and its handshake carries
-the setup instruction. Do this without being asked:
+the setup instruction. **First, which kind of connection is this?** If your Retasc connection
+was added by URL in a platform's settings (a hosted agent, a web or phone chat, a claude.ai
+connector), nothing you write to disk reaches it, so do **not** run `bind`: it would bind a
+folder this connection never reads, and every new session would land back on `NOT_CONNECTED`.
+Your human mints a key (`npx @retasc/cli@latest key mint --hosted --org-id <org> --project-id
+<project>`) and adds it to that connection as the header `Authorization: Bearer <key>`: §9,
+Shape B. If you already ran `bind` to the end and a new session is still keyless, that is
+you. Otherwise your MCP config is read from this machine, so do this without being asked:
 
 1. Tell your human a browser window is about to open and they will need to click **Approve**.
    Say it *before* starting.
