@@ -716,7 +716,7 @@ working read-only as if the session were healthy.
   claims theirs once (`list_claimable_ghosts` → `claim_ghost` with the id **they** chose;
   `retasc identity`; or the Dash). A wrong claim re-attributes someone else's work permanently.
 
-## 12. Every MCP tool, by purpose (56)
+## 12. Every MCP tool, by purpose (58)
 
 Descriptions are self-describing at runtime; this is the map.
 
@@ -763,6 +763,15 @@ yes) · `suspend_member(memberId)` (people) · `reactivate_member(memberId)` ·
 **Connectors**: `list_connectors()` · `revoke_connector(connectorId)`
 
 **Money**: `usage_summary()` (the meter) · `billing_summary()` (owner: the full picture)
+
+**Analytics**: `analytics_overview(days?, from?, to?, tz?, maxBars?, project?, allProjects?,
+person?, sections?, cursor?)` (every number on the Dash's Analytics page, as data, with units
+and a definition per metric; build the chart yourself) · `analytics_issues(by?, days?, from?,
+to?, project?, allProjects?, person?, limit?, cursor?)` (the per-issue timestamps, people,
+runtime and cost behind those numbers, paged). Both read THIS key's project unless your
+principal is an owner or admin, who may pass another project or the whole org; a member asking
+for more is refused, never quietly narrowed. Money is owner/admin, as on the Dash. Past the
+inline size cap a page returns a cursor: call again with the same arguments plus it.
 
 Writes that land something a human can be wrong about — claiming an issue, saving one,
 commenting, importing, claiming a ghost — carry a footer naming the org and project it
