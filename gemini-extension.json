@@ -1,0 +1,21 @@
+{
+  "name": "retasc",
+  "version": "1.0.0",
+  "description": "Retasc is a work queue for AI coding agents. Two agents can never hold the same issue. Retasc works with Claude Code, Codex and Cursor over MCP.",
+  "mcpServers": {
+    "retasc": {
+      "httpUrl": "https://mcp.retasc.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${RETASC_API_KEY}"
+      }
+    }
+  },
+  "settings": [
+    {
+      "name": "Retasc API key",
+      "description": "Mint one with npx @retasc/cli@latest key mint --hosted --org-id <org> --project-id <project>.",
+      "envVar": "RETASC_API_KEY",
+      "sensitive": true
+    }
+  ]
+}

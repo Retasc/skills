@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "retasc": {
+      "type": "http",
+      "url": "https://mcp.retasc.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${RETASC_API_KEY}"
+      }
+    }
+  }
+}

@@ -284,8 +284,12 @@ cap per org.
     took, not just the issue you named. A silence over 30 minutes still lapses them, so
     `checkpoint` before one. **A reconnect ends it**: your client gets a new session id, and
     the claims taken under the old one stop renewing while `youHold` still reads true.
-    `check_claim` returns `renewedByYourCalls`; when it goes false, `claim_issue` with your
-    `claimToken` moves the lease onto the new session and renewal resumes.
+    `check_claim` returns `renewedByYourCalls`; when it goes `false`, `claim_issue` with your
+    `claimToken` moves the lease onto the new session and renewal resumes. It is `null` where
+    your calls cannot renew anything (behind the proxy, or with no session id); read
+    `lastRenewedAt` there. Whether to re-claim is `reclaimWouldMove`: re-claim only when it is
+    `true` (RTSC-1196). A re-claim of an issue this same session already holds only renews it,
+    at the heartbeat price, and keeps your token.
   - Direct HTTP MCP sending no session id (raw `curl`, CI with a hand-rolled client): **you**
     renew. `checkpoint` before any stretch where you will not call Retasc. The claim response
     warns you ("I cannot see a local Retasc runner").
@@ -681,10 +685,10 @@ org only). Credit is bought in the Dash.
 | Dispatch | `next_issue`, `next_batch` (claiming), `claim_issue`, `add_relation`, `remove_relation` | $0.007 |
 | Work | `save_issue` create or body edit, `checkpoint`, `save_comment` | $0.005 |
 | Bookkeeping | `save_issue` status / priority / title / other edits, `save_label`, `save_attachment`, `obsolete_attachment`, `retract_comment` | $0.003 |
-| Plumbing | `mint_session_key`, `mint_harness_key`, `record_session`, `name_workspace`, `release_issue`, `revoke_connector`, every read (a `next_batch` peek included) | $0.001 |
-| Heartbeat | `heartbeat` | $0.0001 |
+| Plumbing | `mint_session_key`, `record_session`, `name_workspace`, `release_issue`, `revoke_connector`, every read (a `next_batch` peek included) | $0.001 |
+| Heartbeat | `heartbeat`, and a re-claim of an issue this session already holds (a `claim_issue` that answers `renewedOnly: true`) | $0.0001 |
 | Files | upload $0.003 + $0.001/MB; download $0.0005/MB per read | size-priced |
-| Free | `invite_member`, `list_invites`, `revoke_invite`, `accept_invite`, `suspend_member`, `reactivate_member`, `retire_member`, `usage_summary`, `billing_summary`, `report_worktrees` | $0 |
+| Free | `invite_member`, `list_invites`, `revoke_invite`, `accept_invite`, `suspend_member`, `reactivate_member`, `retire_member`, `usage_summary`, `billing_summary`, `report_worktrees`, `mint_harness_key` | $0 |
 
 **Gate**: an org that is `needs_reauth`, `canceled`, or `lapsed`, or over its monthly cap,
 refuses value-bearing writes with `BILLING_INACTIVE` / `MONTHLY_CAP_REACHED` and a
@@ -821,7 +825,7 @@ RTSC-1155), listed under `retasc hook --help`.
 
 | Error | Meaning | Do |
 |---|---|---|
-| `UNAUTHORIZED` | Key unknown or revoked, member suspended, org deleted, or project scope violated. One message for all, deliberately. | §8 step 2. Never loop on `bind`. |
+| `UNAUTHORIZED` | Key unknown or revoked, member suspended, org deleted, or project scope violated. One message for all of those, deliberately. The one exception is `UNAUTHORIZED: session key expired`, a session key the server retired because it went unused or silent for a week, which the proxy replaces by itself (RTSC-1194, RTSC-1195). | §8 step 2. Never loop on `bind`. |
 | `NOT_FOUND: X` | No such issue in **this project** (sibling projects read as absent). | Check the prefix; `list_projects`. |
 | `NOT_WORK` | A container (`work:false`). | Read it; claim its children. |
 | `AWAITING_TRIAGE` | External intake not yet signed. | Relay to the human: Dash or `retasc triage`. |
@@ -946,7 +950,7 @@ has no local process to see its filesystem, so for those the isolation rule stay
 |---|---|---|
 | Only `setup_status` is listed | No credential in this folder | §8 step 1 |
 | Tools listed, every call `UNAUTHORIZED` | Credential refused | §8 step 2 |
-| Calls worked, then started returning `UNAUTHORIZED` | Key revoked or rotated, or the agent retired, mid-session | §8 step 2 — relay the two roads the error carries; never invent a cause |
+| Calls worked, then started returning `UNAUTHORIZED` | Key revoked or rotated, or the agent retired, mid-session. (A session key the server retired for going unused or silent a week, `session key expired`, is replaced by the proxy and the call retried since RTSC-1194, so the agent rarely sees that one. Every other refusal is never routed around; a session whose key was retired before RTSC-1194 shipped needs one restart.) | §8 step 2 — relay the two roads the error carries; never invent a cause |
 | "Signed in, but the server is unreachable" | Folder not bound; sign-in is global, the binding is per folder | `retasc bind` here, then restart |
 | Ran `bind`, tools still missing | Not restarted, or resumed instead of restarted | Cold restart the client |
 | `done` fails `CLAIM_MISMATCH` after a resume | New session | `claim_issue` with the old token |
