@@ -1,6 +1,6 @@
 # Install Retasc
 
-Retasc is a work queue for AI coding agents. Two agents can never hold the same issue.
+Retasc is a work queue for AI coding agents. The next agent picks up where the last one stopped.
 
 The MCP endpoint is `https://mcp.retasc.com/mcp`.
 
