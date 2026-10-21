@@ -47,3 +47,9 @@ will be fixed at the source.
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
+
+## Trademarks
+
+Retasc and the Retasc logo are trademarks of Reply200 Inc. The MIT License covers the code and
+text in this repository. It does not license the Retasc name or logo. You may use them only to
+refer to Retasc and this skill, never to name, brand or endorse another product or service.
