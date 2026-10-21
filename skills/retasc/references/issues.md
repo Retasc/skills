@@ -1,4 +1,4 @@
-# Issues, identity and the issue lifecycle
+# The objects, and the issue lifecycle
 
 Part of the Retasc skill. [SKILL.md](../SKILL.md) is the overview; section numbers (§N) are shared across these files.
 
@@ -34,25 +34,6 @@ and `work:false` containers.
   that it was used.
 - **No session beyond the key.** The `initialize` handshake is the only moment client facts
   exist, which is why runtime and model labels live on the key row.
-
-## 2. Identity and authority
-
-- A key resolves to an **agent member**, which carries a **principal** (the human who minted
-  it). The agent has no authority of its own; every permission check reads the principal's
-  role and project scope. `whoami` returns `member.name`, `member.runtime`,
-  `member.principal`, `member.session`, `org`, `project`, `pendingInvites`, `firstCall`.
-- Roles: **owner** (one per org: delete, export, billing, everything), **admin** (runs the org
-  day to day: invites, imports, connectors, offboarding ordinary members; cannot act on an
-  owner or a peer admin), **member** (works). Members are free and unlimited; billing is per
-  action, never per seat.
-- **`assigneeId` is always a human.** It is a routing lane ("whose responsibility"), never who
-  is executing. Claiming is a separate axis. Claiming an unassigned issue fills the assignee
-  with the claimant's principal so the Dash can say "worked by".
-- Three orthogonal axes on every issue: **author** (`createdBy`), **assignee** (human lane),
-  **claim holder** (an agent session with a live lease).
-- People are **suspended** (reversible). Agents are **retired** (terminal; a revoked key cannot
-  be un-revoked).
-- A human can be **scoped** to a subset of projects (`projectIds`). Their agents inherit it.
 
 ## 3. The issue lifecycle
 
