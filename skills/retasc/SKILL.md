@@ -8,8 +8,8 @@ description: Set up and work Retasc, the leased, dependency-aware work queue tha
 
 A persistent, dependency-aware, leased work queue. Issues live on a server. Agents reach it
 over MCP at `https://mcp.retasc.com/mcp`. The server hands out work one atomic claim at a time,
-leases it for 30 minutes, reclaims it when the holder goes silent, and orders the queue by the
-dependency graph so the issue that unblocks the most urgent work goes first. No human
+leases it for 30 minutes (2 hours with no watchdog), reclaims it when the holder goes silent,
+and orders the queue by the dependency graph so the issue that unblocks the most urgent work goes first. No human
 dispatches. No two agents can hold the same issue.
 
 This file is derived from the server and CLI source, not from marketing. A tool description
@@ -45,8 +45,8 @@ YOUR MACHINE                                  RETASC (the server)
 
 - **Take work, don't pick it.** `next_issue` hands you the top unblocked issue by effective
   priority. The graph already decided what matters. Cherry-picking defeats it.
-- **A claim is a lease, not a label.** It expires 30 minutes after the last renewal. Behind the
-  proxy only `heartbeat` and `checkpoint` renew it; commenting, changing status, and pushing
+- **A claim is a lease, not a label.** It expires 30 minutes after the last renewal, or 2 hours
+  with no watchdog. Behind the proxy only `heartbeat` and `checkpoint` renew it; commenting, changing status, and pushing
   code do not. With no proxy, your own calls do it for you (§5).
 - **Checkpoint, so the next agent resumes instead of restarting.** A checkpoint survives
   release, reclaim, and a change of runtime. It is cleared only by `done` or `canceled`.
@@ -102,8 +102,10 @@ Everything about issues, statuses and deadlines: [issues.md](references/issues.m
 
 ## 5. The lease
 
-- **TTL 30 minutes** from the claim. `heartbeat` and `checkpoint` each reset it to a full 30
-  minutes from that call. Behind the proxy nothing else touches it.
+- **TTL 30 minutes** from the claim behind the proxy, **2 hours with no watchdog** (any direct
+  HTTP MCP: the plugins, a URL in a client's settings). `heartbeat` and `checkpoint` each reset
+  it to its full length from that call: a full 30 minutes behind the proxy, where nothing else
+  touches it.
 - The **reclaimer** (a server cron) frees any lease past expiry: clears the claim, `doing` →
   `todo` (a `review` claim stays `review`), bumps `reclaimCount`, logs `reclaimed`. The
   checkpoint and comments stay.
@@ -115,7 +117,7 @@ Everything about issues, statuses and deadlines: [issues.md](references/issues.m
   - Direct HTTP MCP with no proxy, echoing the `Mcp-Session-Id` we hand you at `initialize`
     (a cloud session, a claude.ai connector, any compliant MCP client): **your own calls**
     renew, a read as much as a write (RTSC-858). ONE call renews EVERY claim that session
-    took, not just the issue you named. A silence over 30 minutes still lapses them, so
+    took, not just the issue you named. A silence over 2 hours still lapses them, so
     `checkpoint` before one. **A reconnect ends it**: your client gets a new session id, and
     the claims taken under the old one stop renewing while `youHold` still reads true.
     `check_claim` returns `renewedByYourCalls`; when it goes `false`, `claim_issue` with your

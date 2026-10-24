@@ -30,7 +30,7 @@ Part of the Retasc skill. [SKILL.md](../SKILL.md) is the overview; section numbe
 ## 15. What Retasc enforces, and what it does not
 
 **Enforced by the server** (a rule, not a request): one holder per issue (atomic claim); the
-30-minute lease with reclaim; `claimToken` / session fencing on every write to a held issue
+lease with reclaim (30 minutes behind the watchdog, 2 hours without one); `claimToken` / session fencing on every write to a held issue
 and on `done` / `canceled`; dependency blocking from `blocks` edges (never dispatched, never
 claimable); effective-priority order; lane scoping by default; the 7-claim cap and the monthly
 spend cap; project as a hard boundary; `work`, the dependency declaration and the duplicate

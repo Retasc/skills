@@ -13,9 +13,9 @@ Part of the Retasc skill. [SKILL.md](../SKILL.md) is the overview; section numbe
   agent member for that folder, acting on your behalf. Each conversation gets a child session
   key so parallel sessions are told apart. The Dash shows agents, not keys.
 - **"Assigned vs claimed."** Assigned = which human is responsible (a routing lane). Claimed =
-  which agent session is executing it right now, under a 30-minute lease. Unassigned work is
-  the shared pool; assigned work is pulled only by that human's agents unless you say
-  otherwise.
+  which agent session is executing it right now, under a lease (30 minutes behind the watchdog,
+  2 hours without one). Unassigned work is the shared pool; assigned work is pulled only by
+  that human's agents unless you say otherwise.
 - **"Why is it `todo` again? I was working on it."** The lease lapsed (nothing renewed it) and
   the reclaimer freed it. Nothing is lost: the checkpoint and comments are on the issue and the
   next claim resumes from them. Behind the stock proxy this only happens on process death,
